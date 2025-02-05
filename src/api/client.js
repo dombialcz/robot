@@ -7,6 +7,7 @@ import path from 'path';
 dotenv.config();
 
 const XTB_DEMO_URL = 'wss://ws.xtb.com/demo';
+const XTB_STREAM_URL = 'wss://ws.xtb.com/demoStream';
 const SYMBOL = 'BITCOIN';
 
 // Trading strategy parameters
@@ -53,7 +54,8 @@ class Trade {
 
 class XTBClient {
     constructor() {
-        this.ws = null;
+        this.mainSocket = null;
+        this.streamSocket = null;
         this.sessionId = null;
         this.prices = [];
         this.highs = [];
@@ -93,27 +95,51 @@ class XTBClient {
     }
 
     connect() {
-        this.ws = new WebSocket(XTB_DEMO_URL);
+        console.log('Connecting to XTB main socket...');
+        this.mainSocket = new WebSocket(XTB_DEMO_URL);
 
-        this.ws.on('open', () => {
-            console.log('Connected to XTB API');
+        this.mainSocket.on('open', () => {
+            console.log('Connected to XTB main socket');
             this.login();
         });
 
-        this.ws.on('message', (data) => {
-            const response = JSON.parse(data.toString());
-            console.log('Received message:', JSON.stringify(response));
-            this.handleMessage(response);
+        this.mainSocket.on('message', (data) => {
+            const message = JSON.parse(data.toString());
+            this.handleMainMessage(message);
         });
 
-        this.ws.on('error', (error) => {
-            console.error('WebSocket error:', error);
+        this.mainSocket.on('error', (error) => {
+            console.error('Main socket error:', error);
         });
 
-        this.ws.on('close', () => {
-            console.log('Disconnected from XTB API');
+        this.mainSocket.on('close', () => {
+            console.log('Disconnected from XTB main socket');
             this.connected = false;
             setTimeout(() => this.connect(), 5000);
+        });
+    }
+
+    connectStream() {
+        console.log('Connecting to XTB stream socket...');
+        this.streamSocket = new WebSocket(XTB_STREAM_URL);
+
+        this.streamSocket.on('open', () => {
+            console.log('Connected to XTB stream socket');
+            this.startPriceStream();
+        });
+
+        this.streamSocket.on('message', (data) => {
+            const message = JSON.parse(data.toString());
+            this.handleStreamMessage(message);
+        });
+
+        this.streamSocket.on('error', (error) => {
+            console.error('Stream socket error:', error);
+        });
+
+        this.streamSocket.on('close', () => {
+            console.log('Disconnected from XTB stream socket');
+            setTimeout(() => this.connectStream(), 5000);
         });
     }
 
@@ -125,13 +151,13 @@ class XTBClient {
                 password: process.env.XTB_PASSWORD
             }
         };
-        this.sendCommand(loginCmd);
+        this.sendCommand(this.mainSocket, loginCmd);
     }
 
-    sendCommand(cmd) {
-        if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+    sendCommand(socket, cmd) {
+        if (socket && socket.readyState === WebSocket.OPEN) {
             console.log('Sending command:', JSON.stringify(cmd));
-            this.ws.send(JSON.stringify(cmd));
+            socket.send(JSON.stringify(cmd));
         }
     }
 
@@ -181,7 +207,7 @@ class XTBClient {
             }
         };
 
-        this.sendCommand(tradeCmd);
+        this.sendCommand(this.mainSocket, tradeCmd);
         this.trades.push(trade);
         this.dailyStats.trades++;
         await this.saveTradingHistory();
@@ -297,22 +323,25 @@ Risk: $${riskAmount.toFixed(2)} (${ACCOUNT_RISK_PERCENT}% of account)
         };
     }
 
-    async handleMessage(response) {
-        if (response.status === false) {
-            console.error('API Error:', response.errorCode, response.errorDescr);
+    async handleMainMessage(message) {
+        console.log('Main socket message:', JSON.stringify(message));
+
+        if (message.status === false) {
+            console.error('API Error:', message.errorCode, message.errorDescr);
             return;
         }
 
-        if (response.streamSessionId) {
-            this.sessionId = response.streamSessionId;
+        if (message.streamSessionId) {
+            this.sessionId = message.streamSessionId;
             this.connected = true;
-            console.log('Successfully logged in, starting price stream...');
-            this.startStreaming();
-            return;
+            console.log('Successfully logged in with session ID:', this.sessionId);
+            this.connectStream();
         }
+    }
 
-        if (response.data) {
-            const { ask, high, low } = response.data;
+    async handleStreamMessage(message) {
+        if (message.data) {
+            const { ask, high, low } = message.data;
             this.prices.push(ask);
             this.highs.push(high);
             this.lows.push(low);
@@ -355,19 +384,14 @@ Daily Win Rate: ${metrics.dailyWinRate}%
         }
     }
 
-    startStreaming() {
-        if (!this.connected) return;
-        
+    startPriceStream() {
+        console.log('Starting price stream...');
         const streamCmd = {
             command: "getTickPrices",
-            symbol: SYMBOL,
-            minArrivalTime: 1000,
-            maxLevel: 2,
-            streamSessionId: this.sessionId
+            streamSessionId: this.sessionId,
+            symbol: SYMBOL
         };
-
-        console.log('Starting price stream...');
-        this.sendCommand(streamCmd);
+        this.sendCommand(this.streamSocket, streamCmd);
     }
 }
 
