@@ -5,7 +5,7 @@ dotenv.config();
 
 const XTB_DEMO_URL = 'wss://ws.xtb.com/demo';
 const XTB_STREAM_URL = 'wss://ws.xtb.com/demoStream';
-const SYMBOL = 'BITCOIN';
+const SYMBOL = 'EURUSD';
 
 class XTBTestClient {
     constructor() {

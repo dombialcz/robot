@@ -8,7 +8,7 @@ dotenv.config();
 
 const XTB_DEMO_URL = 'wss://ws.xtb.com/demo';
 const XTB_STREAM_URL = 'wss://ws.xtb.com/demoStream';
-const SYMBOL = 'BITCOIN';
+const SYMBOL = 'EURUSD';
 
 // Trading strategy parameters
 const RSI_OVERBOUGHT = 70;
